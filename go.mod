@@ -1,4 +1,4 @@
-module v2proxy
+module airproxy
 
 go 1.26
 

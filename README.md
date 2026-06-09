@@ -1,61 +1,96 @@
+<div align="center">
+
+![AirProxy](assets/banner.png)
+
 # AirProxy
 
-A simple, beautiful macOS app (written in Go) that turns a **V2Ray subscription or config link** into a **local SOCKS5 / HTTP proxy**. Only the chosen port is proxied — your whole system is **not** tunneled.
+**A simple, beautiful macOS app that turns a V2Ray subscription or config link into a local SOCKS5 / HTTP proxy.**
+*Only the chosen port is proxied — your whole system is **not** tunneled.*
 
-It embeds the [Xray-core](https://github.com/XTLS/Xray-core) engine, so it's a single self-contained binary — no separate `xray` install needed.
+[![Download](https://img.shields.io/badge/Download-.dmg-6C5CE7?style=for-the-badge&logo=apple&logoColor=white)](../../releases/latest)
+[![Platform](https://img.shields.io/badge/macOS-11%2B-000000?style=for-the-badge&logo=apple&logoColor=white)](#install-macos)
+[![Made with Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev)
+[![License: MIT](https://img.shields.io/badge/License-MIT-2FB85F?style=for-the-badge)](LICENSE)
 
-## Features
+</div>
 
-- 🔌 **Local proxy only** — runs SOCKS5 (and optional HTTP) on `127.0.0.1:10808`; the rest of the system is untouched.
-- 📡 **Multiple subscriptions & links** — add several sources, grouped in the UI.
-- 🧭 **Protocols**: VMess, VLESS (TLS / Reality / ws / grpc / tcp), Trojan, Shadowsocks.
-- 📶 **Ping** — per-config or per-group latency test, with a loading spinner.
-- ↕️ **Sort by ping** — fastest servers first.
-- 🔁 **Auto-rotate** — if the active config drops, it automatically switches to another working one.
-- 💾 **Persistent** — your sources, configs and settings are saved between launches.
-- 🖱️ **Right-click a server** — Copy URL · Ping · Edit · Delete.
-- 🎨 Light, Happ-inspired UI with the Vazirmatn font (Persian + Latin), animated menus.
+---
 
-## Install (macOS)
+AirProxy embeds the [Xray-core](https://github.com/XTLS/Xray-core) engine, so it's a single self-contained app — no separate `xray` install needed. Built in Go with a [Fyne](https://fyne.io) UI.
 
-Download **`V2Proxy.dmg`** from the [Releases](../../releases), open it, and drag **V2Proxy** into **Applications**.
+## ✨ Features
 
-> The app is ad-hoc signed (no paid Apple certificate), so on first launch macOS may warn it's from an unidentified developer. Right-click the app → **Open**, or allow it in **System Settings → Privacy & Security**.
+| | |
+|---|---|
+| 🔌 **Local proxy only** | Runs SOCKS5 (and optional HTTP) on `127.0.0.1:10808`. The rest of the system stays direct. |
+| 📡 **Multiple subscriptions & links** | Add several sources, neatly grouped in the UI. |
+| 🧭 **Protocols** | VMess · VLESS (TLS / Reality / ws / grpc / tcp) · Trojan · Shadowsocks. |
+| 📶 **Ping** | Per-config or per-group latency test with a live spinner. |
+| ↕️ **Sort by ping** | Fastest servers first. |
+| 🔁 **Auto-rotate** | If the active config drops, it automatically switches to another working one. |
+| 💾 **Persistent** | Your sources, configs and settings survive restarts. |
+| 🖱️ **Right-click a server** | Copy URL · Ping · Edit · Delete. |
+| 🎨 **Polished UI** | Light, Happ-inspired theme · Vazirmatn font (Persian + Latin) · animated menus. |
 
-## Build from source
+## 📦 Install (macOS)
 
-Requires Go 1.22+ and a C compiler (Xcode Command Line Tools).
+1. Download **`AirProxy.dmg`** from the [latest release](../../releases/latest).
+2. Open it and drag **AirProxy** into **Applications**.
+3. Launch it.
+
+> The app is ad-hoc signed (no paid Apple certificate), so on first launch macOS may warn it's from an unidentified developer.
+> **Right-click the app → Open**, or allow it in **System Settings → Privacy & Security**.
+
+## 🚀 Usage
+
+1. Tap **＋** to add a subscription URL or a config link.
+2. Tap **Load** / it auto-loads — servers appear grouped by source.
+3. Tap **🔍** on a group to ping it, then **⋯ → Sort by ping**.
+4. Select a server and press the big **power button** to connect.
+
+Then point your browser/app at the SOCKS5 proxy `127.0.0.1:10808`.
+
+## 🧪 Test the connection
 
 ```bash
-go build -o v2proxy .
+curl --socks5-hostname 127.0.0.1:10808 https://api.ipify.org
 ```
 
-Package as a `.app` bundle and `.dmg`:
+If it returns the proxy server's IP, only that request went through the proxy.
+
+## 🛠️ Build from source
+
+Requires **Go 1.22+** and the Xcode Command Line Tools (C compiler).
 
 ```bash
-# 1. generate the icon (optional, icon.png is committed)
-go run ./tools/genicon icon.png
-sips -s format icns icon.png --out icon.icns   # or use iconutil
-
-# 2. build the app bundle (see the steps in the build notes), then:
-codesign --force --deep --sign - V2Proxy.app
-hdiutil create -volname V2Proxy -srcfolder <staging> -ov -format UDZO V2Proxy.dmg
+git clone https://github.com/oosmajid/AirProxy.git
+cd AirProxy
+go build -o airproxy .
 ```
 
-> Note: behind networks where `proxy.golang.org` is blocked, set a mirror:
-> `export GOPROXY="https://goproxy.io,https://goproxy.cn,direct"`
+> Behind networks where `proxy.golang.org` is blocked, use a mirror:
+> ```bash
+> export GOPROXY="https://goproxy.io,https://goproxy.cn,direct"
+> ```
 
-## Command-line mode
+Regenerate art assets (optional):
 
-The same binary also works headless:
+```bash
+go run ./tools/genicon   icon.png
+go run ./tools/genbanner icon.png assets/Vazirmatn-Bold.ttf assets/banner.png
+```
+
+## ⌨️ Command-line mode
+
+The same binary also runs headless:
 
 ```bash
 # single config
-./v2proxy --link "vless://…" --socks 10808
+./airproxy --link "vless://…" --socks 10808
 
 # from a subscription
-./v2proxy --sub "https://…/subscribe?token=…" --list      # show configs
-./v2proxy --sub "https://…/subscribe?token=…" --index 2 --socks 10808
+./airproxy --sub "https://…/subscribe?token=…" --list                 # list configs
+./airproxy --sub "https://…/subscribe?token=…" --index 2 --socks 10808
 ```
 
 | Flag | Default | Description |
@@ -67,14 +102,6 @@ The same binary also works headless:
 | `--socks` | `10808` | SOCKS5 port |
 | `--http` | `0` | HTTP port (0 = off) |
 
-## Test
+## 📄 License
 
-```bash
-curl --socks5-hostname 127.0.0.1:10808 https://api.ipify.org
-```
-
-If it returns the proxy server's IP, only that request went through the proxy — the rest of your system stays direct.
-
-## License
-
-Personal project. Bundles [Xray-core](https://github.com/XTLS/Xray-core) (MPL-2.0) and the [Vazirmatn](https://github.com/rastikerdar/vazirmatn) font (OFL).
+[MIT](LICENSE). Bundles [Xray-core](https://github.com/XTLS/Xray-core) (MPL-2.0) and the [Vazirmatn](https://github.com/rastikerdar/vazirmatn) font (OFL).

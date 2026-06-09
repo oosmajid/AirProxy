@@ -7,6 +7,8 @@ import (
 	"image"
 	"image/color"
 	_ "image/png"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -38,8 +40,33 @@ func smallIcon() image.Image {
 //go:embed icon.png
 var iconPNG []byte
 
+const appID = "com.airproxy.app"
+
+// migratePrefs دیتای ذخیره‌شدهٔ نسخهٔ قبلی را به شناسهٔ جدید منتقل می‌کند (یک‌بار).
+func migratePrefs(oldID, newID string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	base := filepath.Join(home, "Library", "Preferences", "fyne")
+	oldF := filepath.Join(base, oldID, "preferences.json")
+	newDir := filepath.Join(base, newID)
+	newF := filepath.Join(newDir, "preferences.json")
+	if _, err := os.Stat(newF); err == nil {
+		return // از قبل وجود دارد
+	}
+	data, err := os.ReadFile(oldF)
+	if err != nil {
+		return
+	}
+	if os.MkdirAll(newDir, 0o755) == nil {
+		_ = os.WriteFile(newF, data, 0o644)
+	}
+}
+
 func runGUI() {
-	a := app.NewWithID("com.local.v2proxy")
+	migratePrefs("com.local.v2proxy", appID) // انتقال دیتای نسخهٔ قبلی (V2Proxy)
+	a := app.NewWithID(appID)
 	a.Settings().SetTheme(&appTheme{})
 	icon := fyne.NewStaticResource("icon.png", iconPNG)
 	a.SetIcon(icon)
@@ -47,7 +74,7 @@ func runGUI() {
 	prefs := a.Preferences()
 	st := loadStore(prefs)
 
-	w := a.NewWindow("V2Proxy")
+	w := a.NewWindow("AirProxy")
 	w.SetIcon(icon)
 	w.Resize(fyne.NewSize(420, 760))
 
@@ -637,7 +664,7 @@ func runGUI() {
 	})
 	addBtn.Importance = widget.LowImportance
 
-	titleTop := canvas.NewText("V2Proxy", colFg)
+	titleTop := canvas.NewText("AirProxy", colFg)
 	titleTop.TextSize = 17
 	titleTop.TextStyle = fyne.TextStyle{Bold: true}
 	titleTop.Alignment = fyne.TextAlignCenter

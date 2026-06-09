@@ -1,6 +1,9 @@
 # build artifacts
+/airproxy
 /v2proxy
+/AirProxy.app/
 /V2Proxy.app/
+/AirProxy.dmg
 /V2Proxy.dmg
 /icon.icns
 /icon.iconset/
