@@ -1,0 +1,9 @@
+# build artifacts
+/v2proxy
+/V2Proxy.app/
+/V2Proxy.dmg
+/icon.icns
+/icon.iconset/
+
+# macOS
+.DS_Store
