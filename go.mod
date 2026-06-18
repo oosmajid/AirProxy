@@ -5,6 +5,7 @@ go 1.26
 require (
 	fyne.io/fyne/v2 v2.7.4
 	github.com/xtls/xray-core v1.260327.0
+	golang.org/x/crypto v0.49.0
 	golang.org/x/image v0.24.0
 	golang.org/x/net v0.52.0
 )
@@ -58,7 +59,6 @@ require (
 	github.com/xtls/reality v0.0.0-20260322125925-9234c772ba8f // indirect
 	github.com/yuin/goldmark v1.7.8 // indirect
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
-	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/exp v0.0.0-20240531132922-fd00a4e0eefc // indirect
 	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect

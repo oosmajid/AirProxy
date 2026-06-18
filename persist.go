@@ -29,6 +29,12 @@ type store struct {
 // prettyGroup نام نمایشی یک گروه (منبع) را می‌سازد.
 func prettyGroup(source string) string {
 	source = strings.TrimSpace(source)
+	if strings.HasPrefix(source, "ssh://") {
+		if c, err := parseSSHLink(source); err == nil && c.host != "" {
+			return "SSH · " + c.host
+		}
+		return "SSH"
+	}
 	if !strings.HasPrefix(source, "http://") && !strings.HasPrefix(source, "https://") {
 		return "Links"
 	}

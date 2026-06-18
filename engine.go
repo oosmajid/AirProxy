@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/xtls/xray-core/core"
@@ -14,9 +15,12 @@ import (
 )
 
 // Engine یک نمونهٔ در حال اجرای Xray را مدیریت می‌کند.
+// برای لینک‌های ssh:// یک تونل SSH→SOCKS5 محلی بالا می‌آید و xray از طریق
+// یک اوت‌باند socks به آن وصل می‌شود تا همهٔ امکانات inbound یکسان بماند.
 type Engine struct {
 	mu       sync.Mutex
 	instance *core.Instance
+	ssh      *sshTunnel
 	listen   string
 	socks    int
 }
@@ -31,10 +35,22 @@ func (e *Engine) Start(link, listen string, socksPort, httpPort int) error {
 		e.instance.Close()
 		e.instance = nil
 	}
+	e.cleanupSSH()
 
-	outbound, err := parseLink(link)
-	if err != nil {
-		return fmt.Errorf("parse config: %w", err)
+	var outbound map[string]interface{}
+	if strings.HasPrefix(strings.TrimSpace(link), "ssh://") {
+		tun, port, err := startSSHTunnel(link)
+		if err != nil {
+			return fmt.Errorf("ssh tunnel: %w", err)
+		}
+		e.ssh = tun
+		outbound = sshOutbound(port)
+	} else {
+		ob, err := parseLink(link)
+		if err != nil {
+			return fmt.Errorf("parse config: %w", err)
+		}
+		outbound = ob
 	}
 
 	cfg := buildConfig(listen, socksPort, httpPort, outbound)
@@ -42,19 +58,30 @@ func (e *Engine) Start(link, listen string, socksPort, httpPort int) error {
 
 	coreCfg, err := serial.LoadJSONConfig(bytes.NewReader(jsonBytes))
 	if err != nil {
+		e.cleanupSSH()
 		return fmt.Errorf("load config: %w", err)
 	}
 	inst, err := core.New(coreCfg)
 	if err != nil {
+		e.cleanupSSH()
 		return fmt.Errorf("create core: %w", err)
 	}
 	if err := inst.Start(); err != nil {
+		e.cleanupSSH()
 		return fmt.Errorf("start core: %w", err)
 	}
 	e.instance = inst
 	e.listen = listen
 	e.socks = socksPort
 	return nil
+}
+
+// cleanupSSH تونل SSH در حال اجرا را می‌بندد (باید با قفل گرفته‌شده صدا زده شود).
+func (e *Engine) cleanupSSH() {
+	if e.ssh != nil {
+		e.ssh.Close()
+		e.ssh = nil
+	}
 }
 
 // Stop نمونهٔ در حال اجرا را متوقف می‌کند.
@@ -65,6 +92,7 @@ func (e *Engine) Stop() {
 		e.instance.Close()
 		e.instance = nil
 	}
+	e.cleanupSSH()
 }
 
 // Running وضعیت اجرا را برمی‌گرداند.

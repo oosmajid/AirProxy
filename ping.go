@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"golang.org/x/net/proxy"
@@ -12,6 +13,13 @@ import (
 
 // endpointOf آدرس و پورت سرور یک لینک را استخراج می‌کند.
 func endpointOf(link string) (string, int, error) {
+	if strings.HasPrefix(strings.TrimSpace(link), "ssh://") {
+		c, err := parseSSHLink(link)
+		if err != nil {
+			return "", 0, err
+		}
+		return c.host, c.port, nil
+	}
 	out, err := parseLink(link)
 	if err != nil {
 		return "", 0, err

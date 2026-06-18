@@ -25,6 +25,7 @@ AirProxy embeds the [Xray-core](https://github.com/XTLS/Xray-core) engine, so it
 | 🔌 **Local proxy only** | Runs SOCKS5 (and optional HTTP) on `127.0.0.1:10808`. The rest of the system stays direct. |
 | 📡 **Multiple subscriptions & links** | Add several sources, neatly grouped in the UI. |
 | 🧭 **Protocols** | VMess · VLESS (TLS / Reality / ws / grpc / tcp) · Trojan · Shadowsocks. |
+| 🔐 **SSH tunnel** | Turn any SSH server into a proxy (dynamic port-forwarding) with password **or** private-key auth. |
 | 📶 **Ping** | Per-config or per-group latency test with a live spinner. |
 | ↕️ **Sort by ping** | Fastest servers first. |
 | 🔁 **Auto-rotate** | If the active config drops, it automatically switches to another working one. |
@@ -43,12 +44,22 @@ AirProxy embeds the [Xray-core](https://github.com/XTLS/Xray-core) engine, so it
 
 ## 🚀 Usage
 
-1. Tap **＋** to add a subscription URL or a config link.
+1. Tap **＋** and choose **Subscription / config link** or **SSH tunnel**.
 2. Tap **Load** / it auto-loads — servers appear grouped by source.
 3. Tap **🔍** on a group to ping it, then **⋯ → Sort by ping**.
 4. Select a server and press the big **power button** to connect.
 
 Then point your browser/app at the SOCKS5 proxy `127.0.0.1:10808`.
+
+### 🔐 SSH tunnel
+
+Tap **＋ → SSH tunnel** and fill in host / port / username, then either a **password** or a **private key** (paste it or load a key file, with an optional passphrase). AirProxy opens an SSH connection and routes the local proxy through it — the same as `ssh -D`, but built in. You can also paste a link directly:
+
+```
+ssh://user:password@host:port
+```
+
+> SSH tunnels carry **TCP** traffic only (no UDP), which covers normal web browsing.
 
 ## 🧪 Test the connection
 

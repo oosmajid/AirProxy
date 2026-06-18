@@ -3,10 +3,14 @@ package main
 import (
 	"bytes"
 	_ "embed"
+	"encoding/base64"
 	"fmt"
 	"image"
 	"image/color"
 	_ "image/png"
+	"io"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -639,28 +643,100 @@ func runGUI() {
 	})
 	gearBtn.Importance = widget.LowImportance
 
-	addBtn := widget.NewButtonWithIcon("", theme.ContentAddIcon(), func() {
+	// addSource یک منبع جدید (ساب/لینک/لینک ssh) را اضافه و بارگذاری می‌کند.
+	addSource := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		mu.Lock()
+		sources = append(sources, s)
+		mu.Unlock()
+		persist()
+		rebuild()
+		loadSource(s, nil)
+	}
+
+	showAddSource := func() {
 		entry := widget.NewMultiLineEntry()
-		entry.SetPlaceHolder("Subscription URL (https://…) or a config link\n(vmess / vless / trojan / ss)")
+		entry.SetPlaceHolder("Subscription URL (https://…) or a config link\n(vmess / vless / trojan / ss / ssh)")
 		entry.Wrapping = fyne.TextWrapBreak
 		d := dialog.NewCustomConfirm("Add source", "Add", "Cancel",
 			container.New(&fixedHeight{120}, entry), func(ok bool) {
-				if !ok {
-					return
+				if ok {
+					addSource(entry.Text)
 				}
-				s := strings.TrimSpace(entry.Text)
-				if s == "" {
-					return
-				}
-				mu.Lock()
-				sources = append(sources, s)
-				mu.Unlock()
-				persist()
-				rebuild()
-				loadSource(s, nil)
 			}, w)
 		d.Resize(fyne.NewSize(380, 220))
 		d.Show()
+	}
+
+	showSSHForm := func() {
+		nameE := widget.NewEntry()
+		nameE.SetPlaceHolder("My VPS (optional)")
+		hostE := widget.NewEntry()
+		hostE.SetPlaceHolder("example.com or 1.2.3.4")
+		portE := widget.NewEntry()
+		portE.SetText("22")
+		userE := widget.NewEntry()
+		userE.SetPlaceHolder("root")
+		passE := widget.NewPasswordEntry()
+		passE.SetPlaceHolder("password (or use a private key)")
+		keyE := widget.NewMultiLineEntry()
+		keyE.SetPlaceHolder("-----BEGIN OPENSSH PRIVATE KEY----- (optional)")
+		keyE.Wrapping = fyne.TextWrapBreak
+		phraseE := widget.NewPasswordEntry()
+		phraseE.SetPlaceHolder("key passphrase (optional)")
+
+		loadKeyBtn := widget.NewButtonWithIcon("Load key file…", theme.FolderOpenIcon(), func() {
+			fd := dialog.NewFileOpen(func(rc fyne.URIReadCloser, err error) {
+				if err != nil || rc == nil {
+					return
+				}
+				defer rc.Close()
+				if data, err := io.ReadAll(rc); err == nil {
+					keyE.SetText(string(data))
+				}
+			}, w)
+			fd.Show()
+		})
+		loadKeyBtn.Importance = widget.LowImportance
+
+		form := container.NewVBox(
+			labeled("Name", nameE),
+			labeled("Host", hostE),
+			labeled("Port", portE),
+			labeled("Username", userE),
+			labeled("Password", passE),
+			labeled("Private key", container.NewBorder(nil, loadKeyBtn, nil, nil,
+				container.New(&fixedHeight{90}, keyE))),
+			labeled("Key passphrase", phraseE),
+		)
+		d := dialog.NewCustomConfirm("Add SSH tunnel", "Add", "Cancel",
+			container.New(&fixedHeight{420}, container.NewVScroll(form)), func(ok bool) {
+				if !ok {
+					return
+				}
+				link, err := buildSSHLink(nameE.Text, hostE.Text, portE.Text,
+					userE.Text, passE.Text, keyE.Text, phraseE.Text)
+				if err != nil {
+					dialog.ShowError(err, w)
+					return
+				}
+				addSource(link)
+			}, w)
+		d.Resize(fyne.NewSize(400, 560))
+		d.Show()
+	}
+
+	var addBtn *widget.Button
+	addBtn = widget.NewButtonWithIcon("", theme.ContentAddIcon(), func() {
+		menu := []menuItem{
+			{"Subscription / config link", theme.ContentAddIcon(), showAddSource},
+			{"SSH tunnel", theme.ComputerIcon(), showSSHForm},
+		}
+		pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(addBtn)
+		showMenu(w.Canvas(), pos.Add(fyne.NewPos(-180, 34)), menu)
 	})
 	addBtn.Importance = widget.LowImportance
 
@@ -754,6 +830,45 @@ func labeled(label string, field fyne.CanvasObject) fyne.CanvasObject {
 	t := canvas.NewText(label, colFgDim)
 	t.TextSize = 12
 	return container.NewVBox(t, field)
+}
+
+// buildSSHLink فیلدهای فرم را به یک لینک ssh:// قابل‌ذخیره تبدیل می‌کند.
+// کلید خصوصی و passphrase به‌صورت base64 در query کدگذاری می‌شوند.
+func buildSSHLink(name, host, portStr, user, pass, key, passphrase string) (string, error) {
+	host = strings.TrimSpace(host)
+	user = strings.TrimSpace(user)
+	if host == "" {
+		return "", fmt.Errorf("Host is required")
+	}
+	if user == "" {
+		return "", fmt.Errorf("Username is required")
+	}
+	port := strings.TrimSpace(portStr)
+	if port == "" {
+		port = "22"
+	}
+	if pass == "" && strings.TrimSpace(key) == "" {
+		return "", fmt.Errorf("Provide a password or a private key")
+	}
+
+	u := &url.URL{Scheme: "ssh", Host: net.JoinHostPort(host, port)}
+	if pass != "" {
+		u.User = url.UserPassword(user, pass)
+	} else {
+		u.User = url.User(user)
+	}
+	q := url.Values{}
+	if k := strings.TrimSpace(key); k != "" {
+		q.Set("pk", base64.RawURLEncoding.EncodeToString([]byte(k)))
+	}
+	if passphrase != "" {
+		q.Set("pass", base64.RawURLEncoding.EncodeToString([]byte(passphrase)))
+	}
+	u.RawQuery = q.Encode()
+	if n := strings.TrimSpace(name); n != "" {
+		u.Fragment = n
+	}
+	return u.String(), nil
 }
 
 func latVal(s string) int {

@@ -53,6 +53,8 @@ func protoOf(raw string) string {
 		}
 	case strings.HasPrefix(raw, "ss://"):
 		proto = "Shadowsocks"
+	case strings.HasPrefix(raw, "ssh://"):
+		proto = "SSH"
 	default:
 		proto = "Unknown"
 	}
