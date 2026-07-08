@@ -16,14 +16,31 @@ type cfgItem struct {
 	Latency string `json:"-"`     // ذخیره نمی‌شود
 }
 
+// bypassRules قوانین دور زدن پروکسی (split-tunneling) را نگه می‌دارد.
+// مقصدهای مطابق این قوانین مستقیم (direct) می‌روند، نه از داخل پروکسی.
+type bypassRules struct {
+	Enabled   bool     `json:"enabled"`    // کلید اصلی روشن/خاموش
+	Iran      bool     `json:"iran"`       // geosite:category-ir + regexp:\.ir$ + geoip:ir
+	Private   bool     `json:"private"`    // geoip:private (شبکهٔ محلی)
+	BlockQUIC bool     `json:"block_quic"` // بلاک udp/443 تا routing مبتنی بر دامنه درست بماند
+	Domains   []string `json:"domains"`    // دامنه‌های دلخواه → direct
+	IPs       []string `json:"ips"`        // IP/CIDR های دلخواه → direct
+}
+
+// defaultBypass مقدار پیش‌فرض را برمی‌گرداند: bypass روشن با ایران/محلی/بلاک-QUIC.
+func defaultBypass() bypassRules {
+	return bypassRules{Enabled: true, Iran: true, Private: true, BlockQUIC: true}
+}
+
 // store کل وضعیت ماندگار اپ.
 type store struct {
-	Sources []string  `json:"sources"`
-	Configs []cfgItem `json:"configs"`
-	Listen  string    `json:"listen"`
-	Socks   int       `json:"socks"`
-	HTTP    int       `json:"http"`
-	Rotate  bool      `json:"rotate"`
+	Sources []string    `json:"sources"`
+	Configs []cfgItem   `json:"configs"`
+	Listen  string      `json:"listen"`
+	Socks   int         `json:"socks"`
+	HTTP    int         `json:"http"`
+	Rotate  bool        `json:"rotate"`
+	Bypass  bypassRules `json:"bypass"`
 }
 
 // prettyGroup نام نمایشی یک گروه (منبع) را می‌سازد.
@@ -51,8 +68,15 @@ func prettyGroup(source string) string {
 const prefKey = "data_v1"
 
 func loadStore(p fyne.Preferences) store {
-	s := store{Listen: "127.0.0.1", Socks: 10808, HTTP: 10809, Rotate: true}
-	raw := p.String(prefKey)
+	return decodeStore(p.String(prefKey))
+}
+
+// decodeStore رشتهٔ ذخیره‌شده را به store تبدیل می‌کند و مقادیر پیش‌فرض را ست می‌کند.
+// چون Bypass پیش از Unmarshal روی defaultBypass() ست می‌شود، دیتای قدیمیِ فاقد
+// فیلد bypass به‌صورت خودکار «ایران روشن» می‌شود، ولی اگر کاربر عمداً خاموشش کرده
+// باشد همان مقدار ذخیره‌شده اعمال می‌گردد.
+func decodeStore(raw string) store {
+	s := store{Listen: "127.0.0.1", Socks: 10808, HTTP: 10809, Rotate: true, Bypass: defaultBypass()}
 	if raw == "" {
 		return s
 	}
