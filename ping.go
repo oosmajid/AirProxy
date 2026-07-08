@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/infra/conf/serial"
 	"golang.org/x/net/proxy"
 )
 
@@ -72,6 +76,68 @@ func tcpPing(link string, timeout time.Duration) (time.Duration, error) {
 	}
 	conn.Close()
 	return time.Since(start), nil
+}
+
+// pickFreePort یک پورت TCP آزاد روی لوکال‌هاست پیدا می‌کند.
+func pickFreePort() (int, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port, nil
+}
+
+// realPing برای این کانفیگ یک نمونهٔ موقتِ Xray بالا می‌آورد و از داخلِ پروکسی
+// یک درخواست HTTP واقعی می‌زند تا پینگِ end-to-end واقعی را اندازه بگیرد.
+// برخلاف tcpPing (که فقط reachability پورت — اغلب edge یک CDN — را می‌سنجد)،
+// این تابع کانفیگ‌های مرده/نامعتبر را درست تشخیص می‌دهد و پینگِ راستین می‌دهد.
+func realPing(link string, timeout time.Duration) (time.Duration, error) {
+	link = strings.TrimSpace(link)
+
+	var outbound map[string]interface{}
+	var tun *sshTunnel
+	if strings.HasPrefix(link, "ssh://") {
+		t, sshPort, err := startSSHTunnel(link)
+		if err != nil {
+			return 0, fmt.Errorf("ssh tunnel: %w", err)
+		}
+		tun = t
+		outbound = sshOutbound(sshPort)
+	} else {
+		ob, err := parseLink(link)
+		if err != nil {
+			return 0, err
+		}
+		outbound = ob
+	}
+	defer func() {
+		if tun != nil {
+			tun.Close()
+		}
+	}()
+
+	port, err := pickFreePort()
+	if err != nil {
+		return 0, err
+	}
+
+	cfg := buildConfig("127.0.0.1", port, 0, outbound, nil)
+	jsonBytes, _ := json.MarshalIndent(cfg, "", "  ")
+	coreCfg, err := serial.LoadJSONConfig(bytes.NewReader(jsonBytes))
+	if err != nil {
+		return 0, fmt.Errorf("load config: %w", err)
+	}
+	inst, err := core.New(coreCfg)
+	if err != nil {
+		return 0, fmt.Errorf("create core: %w", err)
+	}
+	if err := inst.Start(); err != nil {
+		return 0, fmt.Errorf("start core: %w", err)
+	}
+	defer inst.Close()
+
+	return proxyHealth("127.0.0.1", port, timeout)
 }
 
 // proxyHealth از طریق پروکسی لوکال یک درخواست واقعی می‌زند تا سلامت اتصال را بسنجد.

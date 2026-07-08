@@ -231,7 +231,8 @@ func runGUI() {
 			applyLatUI(raw, "...") // اسپینر روشن
 		}
 		go func() {
-			sem := make(chan struct{}, 16)
+			// هر پینگ یک نمونهٔ موقتِ Xray بالا می‌آورد، پس همزمانی را پایین‌تر نگه می‌داریم.
+			sem := make(chan struct{}, 6)
 			var wg sync.WaitGroup
 			for _, raw := range raws {
 				wg.Add(1)
@@ -239,7 +240,7 @@ func runGUI() {
 				go func(rw string) {
 					defer wg.Done()
 					defer func() { <-sem }()
-					d, err := tcpPing(rw, 5*time.Second)
+					d, err := realPing(rw, 8*time.Second)
 					res := "timeout"
 					if err == nil {
 						res = fmt.Sprintf("%d ms", d.Milliseconds())
