@@ -23,6 +23,7 @@ AirProxy embeds the [Xray-core](https://github.com/XTLS/Xray-core) engine, so it
 | | |
 |---|---|
 | 🔌 **Local proxy only** | Runs SOCKS5 (and optional HTTP) on `127.0.0.1:10808`. The rest of the system stays direct. |
+| 🔀 **Bypass / split-tunneling** | Route Iran (geo), or your own domains / IPs, **directly** instead of through the proxy. Iran bypass is on by default. |
 | 📡 **Multiple subscriptions & links** | Add several sources, neatly grouped in the UI. |
 | 🧭 **Protocols** | VMess · VLESS (TLS / Reality / ws / grpc / tcp) · Trojan · Shadowsocks. |
 | 🔐 **SSH tunnel** | Turn any SSH server into a proxy (dynamic port-forwarding) with password **or** private-key auth. |
@@ -60,6 +61,12 @@ ssh://user:password@host:port
 ```
 
 > SSH tunnels carry **TCP** traffic only (no UDP), which covers normal web browsing.
+
+### 🔀 Bypass (split-tunneling)
+
+Open **⚙️ Settings → Bypass / split-tunneling…**. Toggle whole rule-sets — **Iran** (Iranian sites & IPs via bundled geo data), **Private / LAN**, **Block QUIC** — and/or add your own **domains** and **IPs / CIDRs** (one per line; `domain:`, `regexp:`, `geoip:` prefixes accepted). Matched destinations go **direct** (bypassing the proxy); everything else stays proxied. Iran bypass is enabled by default.
+
+> Geo data (`geoip.dat` / `geosite.dat`, Iran-focused) is bundled in the app — no download needed. Maintainers can refresh it with `go run ./tools/gengeo assets/geo`.
 
 ## 🧪 Test the connection
 

@@ -78,6 +78,12 @@ func runGUI() {
 	prefs := a.Preferences()
 	st := loadStore(prefs)
 
+	// فایل‌های geo را استخراج کن و XRAY_LOCATION_ASSET را ست کن تا قوانین
+	// bypass ژئویی (geoip:ir / geosite:category-ir) کار کنند.
+	if _, err := ensureGeoAssets(); err != nil {
+		fmt.Println("geo assets:", err) // بدون geo، bypass ژئویی کار نمی‌کند؛ ادامه بده.
+	}
+
 	w := a.NewWindow("AirProxy")
 	w.SetIcon(icon)
 	w.Resize(fyne.NewSize(420, 760))
@@ -88,6 +94,7 @@ func runGUI() {
 		mu           sync.Mutex
 		sources      = st.Sources
 		configs      = st.Configs
+		bypass       = st.Bypass
 		selectedRaw  string
 		connectedRaw string
 		monGen       int64
@@ -169,6 +176,7 @@ func runGUI() {
 			Sources: append([]string{}, sources...),
 			Configs: append([]cfgItem{}, configs...),
 			Listen:  l, Socks: s, HTTP: h, Rotate: rotateCheck.Checked,
+			Bypass: bypass,
 		}
 		mu.Unlock()
 		saveStore(prefs, stt)
@@ -490,6 +498,12 @@ func runGUI() {
 		}
 		return ""
 	}
+	// currentBypass نسخهٔ فعلی قوانین bypass را به‌صورت thread-safe برمی‌گرداند.
+	currentBypass := func() bypassRules {
+		mu.Lock()
+		defer mu.Unlock()
+		return bypass
+	}
 
 	startMonitor := func(gen int64, listen string, socks, httpP int) {
 		go func() {
@@ -533,7 +547,7 @@ func runGUI() {
 					if nr == curRaw {
 						continue
 					}
-					if err := eng.Start(nr, listen, socks, httpP, nil); err != nil {
+					if err := eng.Start(nr, listen, socks, httpP, buildRouting(currentBypass())); err != nil {
 						continue
 					}
 					if _, err := proxyHealth(listen, socks, 6*time.Second); err != nil {
@@ -571,7 +585,7 @@ func runGUI() {
 		persist()
 		setStatus("Connecting…", nameOf(raw), colAccent, 1)
 		go func() {
-			if err := eng.Start(raw, listen, socks, httpP, nil); err != nil {
+			if err := eng.Start(raw, listen, socks, httpP, buildRouting(currentBypass())); err != nil {
 				setStatus("Error", err.Error(), colRed, 0)
 				return
 			}
@@ -628,17 +642,77 @@ func runGUI() {
 	powerBtn = newPowerButton(onPower)
 
 	// ---------- top toolbar ----------
+	// showBypassDialog دیالوگ split-tunneling را نشان می‌دهد. هر بار ویجت‌ها را از
+	// روی مقدار فعلی bypass می‌سازد تا Cancel چیزی را تغییر ندهد.
+	showBypassDialog := func() {
+		cur := currentBypass()
+		enable := widget.NewCheck("Enable bypass (split-tunneling)", nil)
+		enable.SetChecked(cur.Enabled)
+		iran := widget.NewCheck("Iran — Iranian sites & IPs (geo)", nil)
+		iran.SetChecked(cur.Iran)
+		priv := widget.NewCheck("Private / LAN networks", nil)
+		priv.SetChecked(cur.Private)
+		quic := widget.NewCheck("Block QUIC (UDP/443) for correct routing", nil)
+		quic.SetChecked(cur.BlockQUIC)
+
+		domains := widget.NewMultiLineEntry()
+		domains.Wrapping = fyne.TextWrapBreak
+		domains.SetText(strings.Join(cur.Domains, "\n"))
+		domains.SetPlaceHolder("Custom domains, one per line\n(e.g. digikala.com  ·  domain:example.ir  ·  regexp:\\.ir$)")
+		ips := widget.NewMultiLineEntry()
+		ips.Wrapping = fyne.TextWrapBreak
+		ips.SetText(strings.Join(cur.IPs, "\n"))
+		ips.SetPlaceHolder("Custom IPs / CIDRs, one per line\n(e.g. 5.160.0.0/16  ·  geoip:ir)")
+
+		form := container.NewVBox(
+			enable,
+			widget.NewSeparator(),
+			iran, priv, quic,
+			layoutSpacer(4),
+			labeled("Bypass domains (direct)", container.New(&fixedHeight{80}, domains)),
+			labeled("Bypass IPs / CIDRs (direct)", container.New(&fixedHeight{80}, ips)),
+		)
+		d := dialog.NewCustomConfirm("Bypass / split-tunneling", "Save", "Cancel",
+			container.New(&fixedHeight{440}, container.NewVScroll(form)), func(ok bool) {
+				if !ok {
+					return
+				}
+				mu.Lock()
+				bypass = bypassRules{
+					Enabled:   enable.Checked,
+					Iran:      iran.Checked,
+					Private:   priv.Checked,
+					BlockQUIC: quic.Checked,
+					Domains:   parseList(domains.Text),
+					IPs:       parseList(ips.Text),
+				}
+				conn := connectedRaw
+				mu.Unlock()
+				persist()
+				// اگر متصل هستیم، با routing جدید دوباره وصل شو تا فوراً اعمال شود.
+				if eng.Running() && conn != "" {
+					doConnect(conn)
+				}
+			}, w)
+		d.Resize(fyne.NewSize(400, 560))
+		d.Show()
+	}
+
 	gearBtn := widget.NewButtonWithIcon("", theme.SettingsIcon(), func() {
+		bypassBtn := widget.NewButtonWithIcon("Bypass / split-tunneling…", theme.MailForwardIcon(), showBypassDialog)
+		bypassBtn.Importance = widget.LowImportance
 		form := container.NewVBox(
 			labeled("IP", listenEntry),
 			labeled("SOCKS5 port", socksEntry),
 			labeled("HTTP port (optional)", httpEntry),
 			layoutSpacer(4),
 			rotateCheck,
+			layoutSpacer(8),
+			bypassBtn,
 			layoutSpacer(4),
 		)
 		d := dialog.NewCustomConfirm("Settings", "Save", "Close", form, func(bool) { persist() }, w)
-		d.Resize(fyne.NewSize(380, 340))
+		d.Resize(fyne.NewSize(380, 380))
 		d.Show()
 	})
 	gearBtn.Importance = widget.LowImportance
