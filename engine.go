@@ -27,7 +27,7 @@ type Engine struct {
 
 // Start با یک لینک، پروکسی را روی listen/socks/http بالا می‌آورد.
 // اگر از قبل چیزی در حال اجرا باشد، ابتدا متوقف می‌شود.
-func (e *Engine) Start(link, listen string, socksPort, httpPort int) error {
+func (e *Engine) Start(link, listen string, socksPort, httpPort int, routing map[string]interface{}) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -53,7 +53,7 @@ func (e *Engine) Start(link, listen string, socksPort, httpPort int) error {
 		outbound = ob
 	}
 
-	cfg := buildConfig(listen, socksPort, httpPort, outbound)
+	cfg := buildConfig(listen, socksPort, httpPort, outbound, routing)
 	jsonBytes, _ := json.MarshalIndent(cfg, "", "  ")
 
 	coreCfg, err := serial.LoadJSONConfig(bytes.NewReader(jsonBytes))

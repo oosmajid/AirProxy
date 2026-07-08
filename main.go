@@ -60,7 +60,7 @@ func runCLI(link, sub string, index int, listen string, socks, httpP int, list b
 	chosen := rawLinks[index]
 
 	eng := &Engine{}
-	if err := eng.Start(chosen, listen, socks, httpP); err != nil {
+	if err := eng.Start(chosen, listen, socks, httpP, nil); err != nil {
 		fatal("%v", err)
 	}
 	defer eng.Stop()

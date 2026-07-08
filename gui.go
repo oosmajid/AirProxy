@@ -533,7 +533,7 @@ func runGUI() {
 					if nr == curRaw {
 						continue
 					}
-					if err := eng.Start(nr, listen, socks, httpP); err != nil {
+					if err := eng.Start(nr, listen, socks, httpP, nil); err != nil {
 						continue
 					}
 					if _, err := proxyHealth(listen, socks, 6*time.Second); err != nil {
@@ -571,7 +571,7 @@ func runGUI() {
 		persist()
 		setStatus("Connecting…", nameOf(raw), colAccent, 1)
 		go func() {
-			if err := eng.Start(raw, listen, socks, httpP); err != nil {
+			if err := eng.Start(raw, listen, socks, httpP, nil); err != nil {
 				setStatus("Error", err.Error(), colRed, 0)
 				return
 			}
