@@ -8,6 +8,7 @@ require (
 	golang.org/x/crypto v0.49.0
 	golang.org/x/image v0.24.0
 	golang.org/x/net v0.52.0
+	google.golang.org/protobuf v1.36.11
 )
 
 require (
@@ -70,7 +71,6 @@ require (
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
 	google.golang.org/grpc v1.79.3 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gvisor.dev/gvisor v0.0.0-20260122175437-89a5d21be8f0 // indirect
