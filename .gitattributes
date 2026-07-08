@@ -1,0 +1,2 @@
+# Geo data are binary blobs — never apply text/line-ending normalization.
+assets/geo/*.dat binary
