@@ -25,7 +25,9 @@ AirProxy embeds the [Xray-core](https://github.com/XTLS/Xray-core) engine, so it
 | 🔌 **Local proxy only** | Runs SOCKS5 (and optional HTTP) on `127.0.0.1:10808`. The rest of the system stays direct. |
 | 🔀 **Bypass / split-tunneling** | Route Iran (geo), or your own domains / IPs, **directly** instead of through the proxy. Iran bypass is on by default. |
 | 📡 **Multiple subscriptions & links** | Add several sources, neatly grouped in the UI. |
-| 🧭 **Protocols** | VMess · VLESS (TLS / Reality / ws / grpc / tcp) · Trojan · Shadowsocks. |
+| 🧭 **Protocols** | VMess · VLESS · Trojan · Shadowsocks · **Hysteria2** · **WireGuard** · **SOCKS** — transports **XHTTP** · WS · HTTPUpgrade · gRPC · RAW/TCP · mKCP, with TLS / **Reality**. |
+| 🧩 **v2rayN-style core options** | **Fragment** (split TLS ClientHello), **ECH**, **Mux**, default uTLS fingerprint, TCP Fast Open, routing domain strategy — plus per-link `fm` (finalmask), `ech`, `pcs`, `vcn`, `spx`, `pqv`, xhttp `mode`/`extra`. |
+| 🛡️ **Ignores a system VPN** | If another VPN (Happ, v2rayN TUN, …) is on, AirProxy binds to the physical interface so pings and connections reflect **your real network**, not the other VPN. |
 | 🔐 **SSH tunnel** | Turn any SSH server into a proxy (dynamic port-forwarding) with password **or** private-key auth. |
 | 📶 **Ping** | Per-config or per-group latency test with a live spinner. |
 | ↕️ **Sort by ping** | Fastest servers first. |
@@ -61,6 +63,21 @@ ssh://user:password@host:port
 ```
 
 > SSH tunnels carry **TCP** traffic only (no UDP), which covers normal web browsing.
+
+### 🧩 Advanced (Fragment / ECH / Mux)
+
+Open **⚙️ Settings → Advanced: Fragment / ECH / Mux…**:
+
+- **Fragment** — splits the TLS ClientHello (`packets`: `tlshello` or `1-3`, `length`, `interval` ms) to get past DPI/SNI filtering. Applied via Xray *finalmask*, overriding any fragment carried in the link.
+- **TLS / ECH** — default uTLS fingerprint for links without `fp`; a global **ECH config list** (base64, or a DNS query such as `cloudflare-ech.com+https://1.1.1.1/dns-query`) for TLS links without their own `ech`; and ECH force-query mode.
+- **Mux**, **TCP Fast Open**, **routing domain strategy**.
+- **Bypass system VPN** (on by default) — see below.
+
+Settings apply to both **connect** and **ping**, so a ping measures exactly the path you'll use.
+
+### 📶 Why pings are accurate
+
+Each ping starts a throwaway Xray instance and requests `generate_204` **through the proxy**; only a genuine `204` counts (a fallback page or a filtering page does not). If another VPN is active on the Mac (default route on a `utun` interface), AirProxy binds its traffic to the physical interface (e.g. `en0`) — otherwise every config would look alive because it is silently reached **through the other VPN**.
 
 ### 🔀 Bypass (split-tunneling)
 

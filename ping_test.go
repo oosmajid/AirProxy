@@ -35,7 +35,7 @@ func TestRealPingRejectsDeadProxy(t *testing.T) {
 	}
 
 	// realPing باید کانفیگ مرده را رد کند.
-	if _, err := realPing(link, 2*time.Second); err == nil {
+	if _, err := realPing(link, 2*time.Second, defaultAdvanced()); err == nil {
 		t.Fatal("realPing باید برای پروکسیِ مرده‌ای که فقط TCP handshake می‌کند خطا بدهد")
 	}
 }

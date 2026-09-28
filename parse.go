@@ -21,6 +21,12 @@ func parseLink(raw string) (map[string]interface{}, error) {
 		return parseTrojan(raw)
 	case strings.HasPrefix(raw, "ss://"):
 		return parseShadowsocks(raw)
+	case strings.HasPrefix(raw, "hy2://"), strings.HasPrefix(raw, "hysteria2://"):
+		return parseHysteria2(raw)
+	case strings.HasPrefix(raw, "wireguard://"), strings.HasPrefix(raw, "wg://"):
+		return parseWireguard(raw)
+	case strings.HasPrefix(raw, "socks://"):
+		return parseSocks(raw)
 	default:
 		return nil, fmt.Errorf("پروتکل پشتیبانی‌نشده: %.10s", raw)
 	}
@@ -53,6 +59,12 @@ func protoOf(raw string) string {
 		}
 	case strings.HasPrefix(raw, "ss://"):
 		proto = "Shadowsocks"
+	case strings.HasPrefix(raw, "hy2://"), strings.HasPrefix(raw, "hysteria2://"):
+		proto = "Hysteria2"
+	case strings.HasPrefix(raw, "wireguard://"), strings.HasPrefix(raw, "wg://"):
+		proto = "WireGuard"
+	case strings.HasPrefix(raw, "socks://"):
+		proto = "SOCKS"
 	case strings.HasPrefix(raw, "ssh://"):
 		proto = "SSH"
 	default:
@@ -147,26 +159,38 @@ func parseVmess(raw string) (map[string]interface{}, error) {
 		},
 	}
 
-	network := get("net")
-	if network == "" || network == "<nil>" {
-		network = "tcp"
-	}
-	security := get("tls")
-	host := get("host")
-	path := get("path")
-	sni := get("sni")
-	headerType := get("type")
-
-	out["streamSettings"] = buildStream(streamParams{
-		network:    network,
-		security:   security,
-		host:       host,
-		path:       path,
-		sni:        sni,
-		headerType: headerType,
+	stream, err := buildStream(streamParams{
+		network:    get("net"),
+		security:   get("tls"),
+		host:       get("host"),
+		path:       get("path"),
+		sni:        get("sni"),
+		headerType: get("type"),
 		alpn:       get("alpn"),
+		fp:         get("fp"),
+		serviceN:   get("path"), // در vmess، serviceName ِ gRPC در path می‌آید
+		authority:  get("authority"),
+		mode:       firstNonEmpty(get("mode"), modeFromType(get("net"), get("type"))),
+		extra:      get("extra"),
+		seed:       get("path"), // در vmess، seed ِ mKCP در path می‌آید
+		ech:        get("ech"),
+		pcs:        get("pcs"),
+		vcn:        get("vcn"),
+		fm:         get("fm"),
 	})
+	if err != nil {
+		return nil, err
+	}
+	out["streamSettings"] = stream
 	return out, nil
+}
+
+// modeFromType در vmess، حالت gRPC (gun/multi) و XHTTP در فیلد type می‌آید.
+func modeFromType(network, typ string) string {
+	if n := clean(network); n == "grpc" || n == "xhttp" || n == "splithttp" {
+		return clean(typ)
+	}
+	return ""
 }
 
 // ---- vless ----
@@ -188,6 +212,10 @@ func parseVless(raw string) (map[string]interface{}, error) {
 		user["flow"] = flow
 	}
 
+	stream, err := buildStream(streamFromQuery(q))
+	if err != nil {
+		return nil, err
+	}
 	out := map[string]interface{}{
 		"tag":      "proxy",
 		"protocol": "vless",
@@ -200,7 +228,7 @@ func parseVless(raw string) (map[string]interface{}, error) {
 				},
 			},
 		},
-		"streamSettings": buildStream(streamFromQuery(q)),
+		"streamSettings": stream,
 	}
 	return out, nil
 }
@@ -222,6 +250,10 @@ func parseTrojan(raw string) (map[string]interface{}, error) {
 		sp.security = "tls"
 	}
 
+	stream, err := buildStream(sp)
+	if err != nil {
+		return nil, err
+	}
 	out := map[string]interface{}{
 		"tag":      "proxy",
 		"protocol": "trojan",
@@ -230,7 +262,7 @@ func parseTrojan(raw string) (map[string]interface{}, error) {
 				{"address": u.Hostname(), "port": port, "password": password},
 			},
 		},
-		"streamSettings": buildStream(sp),
+		"streamSettings": stream,
 	}
 	return out, nil
 }
@@ -305,6 +337,7 @@ func splitHostPort(s string) (string, int) {
 
 // ---- stream settings ----
 
+// streamParams همهٔ پارامترهای ترنسپورت/امنیتِ یک لینک اشتراکی (سبک v2rayN) است.
 type streamParams struct {
 	network    string
 	security   string
@@ -314,9 +347,19 @@ type streamParams struct {
 	headerType string
 	alpn       string
 	fp         string
-	pbk        string
-	sid        string
-	serviceN   string
+	pbk        string // reality publicKey
+	sid        string // reality shortId
+	spx        string // reality spiderX
+	pqv        string // reality mldsa65Verify
+	serviceN   string // grpc serviceName
+	authority  string // grpc authority
+	mode       string // grpc: gun/multi — xhttp: auto/packet-up/stream-up/stream-one
+	extra      string // xhttp extra (JSON)
+	seed       string // mkcp seed
+	ech        string // echConfigList (base64 یا "domain+https://dns/…")
+	pcs        string // pinnedPeerCertSha256
+	vcn        string // verifyPeerCertByName
+	fm         string // finalmask (JSON) — مثلاً fragment روی TCP
 }
 
 func streamFromQuery(q url.Values) streamParams {
@@ -325,28 +368,66 @@ func streamFromQuery(q url.Values) streamParams {
 		security:   q.Get("security"),
 		host:       q.Get("host"),
 		path:       q.Get("path"),
-		sni:        q.Get("sni"),
+		sni:        firstNonEmpty(q.Get("sni"), q.Get("peer")),
 		headerType: q.Get("headerType"),
 		alpn:       q.Get("alpn"),
 		fp:         q.Get("fp"),
 		pbk:        q.Get("pbk"),
 		sid:        q.Get("sid"),
+		spx:        q.Get("spx"),
+		pqv:        q.Get("pqv"),
 		serviceN:   q.Get("serviceName"),
+		authority:  q.Get("authority"),
+		mode:       q.Get("mode"),
+		extra:      q.Get("extra"),
+		seed:       q.Get("seed"),
+		ech:        q.Get("ech"),
+		pcs:        q.Get("pcs"),
+		vcn:        q.Get("vcn"),
+		fm:         q.Get("fm"),
 	}
 }
 
-func buildStream(p streamParams) map[string]interface{} {
-	network := orDefault(p.network, "tcp")
-	if network == "<nil>" {
-		network = "tcp"
+// clean مقادیر خالی/‏<nil>‏ حاصل از fmt.Sprintf روی فیلدهای ناموجود را حذف می‌کند.
+func clean(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "<nil>" {
+		return ""
 	}
-	security := p.security
+	return s
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if clean(v) != "" {
+			return clean(v)
+		}
+	}
+	return ""
+}
+
+func buildStream(p streamParams) (map[string]interface{}, error) {
+	network := strings.ToLower(orDefault(clean(p.network), "tcp"))
+	switch network {
+	case "raw":
+		network = "tcp"
+	case "splithttp":
+		network = "xhttp"
+	case "mkcp":
+		network = "kcp"
+	case "websocket":
+		network = "ws"
+	case "h2", "http", "h3", "quic":
+		return nil, fmt.Errorf("ترنسپورت %q در Xray حذف شده (به‌جایش XHTTP)", network)
+	}
+	security := strings.ToLower(clean(p.security))
 	if security == "1" || security == "true" {
 		security = "tls"
 	}
-	if security == "" || security == "<nil>" || security == "0" {
+	if security == "" || security == "0" {
 		security = "none"
 	}
+	host, path := clean(p.host), clean(p.path)
 
 	stream := map[string]interface{}{
 		"network":  network,
@@ -355,64 +436,274 @@ func buildStream(p streamParams) map[string]interface{} {
 
 	switch network {
 	case "ws":
-		ws := map[string]interface{}{"path": orDefault(p.path, "/")}
-		if p.host != "" && p.host != "<nil>" {
-			ws["headers"] = map[string]interface{}{"Host": p.host}
+		ws := map[string]interface{}{"path": orDefault(path, "/")}
+		if host != "" {
+			ws["host"] = host
 		}
 		stream["wsSettings"] = ws
-	case "grpc":
-		stream["grpcSettings"] = map[string]interface{}{
-			"serviceName": p.serviceN,
+	case "httpupgrade":
+		hu := map[string]interface{}{"path": orDefault(path, "/")}
+		if host != "" {
+			hu["host"] = host
 		}
-	case "h2", "http":
-		h2 := map[string]interface{}{"path": orDefault(p.path, "/")}
-		if p.host != "" && p.host != "<nil>" {
-			h2["host"] = []string{p.host}
+		stream["httpupgradeSettings"] = hu
+	case "xhttp":
+		xh := map[string]interface{}{"path": orDefault(path, "/")}
+		if host != "" {
+			xh["host"] = host
 		}
-		stream["httpSettings"] = h2
-	case "tcp":
-		if p.headerType == "http" {
-			tcp := map[string]interface{}{
-				"header": map[string]interface{}{
-					"type": "http",
-					"request": map[string]interface{}{
-						"path": []string{orDefault(p.path, "/")},
-					},
-				},
+		if m := clean(p.mode); m != "" {
+			xh["mode"] = m
+		}
+		if ex := clean(p.extra); ex != "" {
+			var extra map[string]interface{}
+			if err := json.Unmarshal([]byte(ex), &extra); err != nil {
+				return nil, fmt.Errorf("xhttp extra نامعتبر: %w", err)
 			}
-			stream["tcpSettings"] = tcp
+			xh["extra"] = extra
+		}
+		stream["xhttpSettings"] = xh
+	case "grpc":
+		g := map[string]interface{}{"serviceName": clean(p.serviceN)}
+		if a := clean(p.authority); a != "" {
+			g["authority"] = a
+		}
+		if clean(p.mode) == "multi" {
+			g["multiMode"] = true
+		}
+		stream["grpcSettings"] = g
+	case "kcp":
+		// در Xray جدید header/seed ِ mKCP به finalmask/udp منتقل شده است.
+		var masks []interface{}
+		if ht := clean(p.headerType); ht != "" && ht != "none" {
+			if ht == "wechat-video" {
+				ht = "wechat"
+			}
+			masks = append(masks, map[string]interface{}{"type": "header-" + ht})
+		}
+		if seed := clean(p.seed); seed != "" {
+			masks = append(masks, map[string]interface{}{"type": "mkcp-aes128gcm", "settings": map[string]interface{}{"password": seed}})
+		} else {
+			masks = append(masks, map[string]interface{}{"type": "mkcp-original"})
+		}
+		stream["kcpSettings"] = map[string]interface{}{}
+		stream["finalmask"] = map[string]interface{}{"udp": masks}
+	case "tcp":
+		if clean(p.headerType) == "http" {
+			req := map[string]interface{}{"path": strings.Split(orDefault(path, "/"), ",")}
+			if host != "" {
+				req["headers"] = map[string]interface{}{"Host": strings.Split(host, ",")}
+			}
+			stream["tcpSettings"] = map[string]interface{}{
+				"header": map[string]interface{}{"type": "http", "request": req},
+			}
 		}
 	}
 
-	if security == "tls" {
+	switch security {
+	case "tls":
 		tls := map[string]interface{}{}
-		if p.sni != "" && p.sni != "<nil>" {
-			tls["serverName"] = p.sni
-		} else if p.host != "" && p.host != "<nil>" {
-			tls["serverName"] = p.host
+		if sni := firstNonEmpty(p.sni, host); sni != "" {
+			tls["serverName"] = sni
 		}
-		if p.alpn != "" && p.alpn != "<nil>" {
-			tls["alpn"] = strings.Split(p.alpn, ",")
+		if a := clean(p.alpn); a != "" {
+			tls["alpn"] = strings.Split(a, ",")
 		}
-		if p.fp != "" {
-			tls["fingerprint"] = p.fp
+		if fp := clean(p.fp); fp != "" {
+			tls["fingerprint"] = fp
+		}
+		if ech := clean(p.ech); ech != "" {
+			tls["echConfigList"] = ech
+		}
+		if pcs := clean(p.pcs); pcs != "" {
+			tls["pinnedPeerCertSha256"] = pcs
+		}
+		if vcn := clean(p.vcn); vcn != "" {
+			tls["verifyPeerCertByName"] = vcn
 		}
 		stream["tlsSettings"] = tls
-	}
-
-	if security == "reality" {
+	case "reality":
 		reality := map[string]interface{}{
-			"serverName": p.sni,
-			"publicKey":  p.pbk,
-			"shortId":    p.sid,
+			"serverName":  clean(p.sni),
+			"publicKey":   clean(p.pbk),
+			"shortId":     clean(p.sid),
+			"fingerprint": orDefault(clean(p.fp), "chrome"),
 		}
-		if p.fp != "" {
-			reality["fingerprint"] = p.fp
+		if spx := clean(p.spx); spx != "" {
+			reality["spiderX"] = spx
+		}
+		if pqv := clean(p.pqv); pqv != "" {
+			reality["mldsa65Verify"] = pqv
 		}
 		stream["realitySettings"] = reality
+	case "none":
+	default:
+		return nil, fmt.Errorf("security ناشناخته: %s", security)
 	}
 
-	return stream
+	if fm := clean(p.fm); fm != "" {
+		var mask map[string]interface{}
+		if err := json.Unmarshal([]byte(fm), &mask); err != nil {
+			return nil, fmt.Errorf("finalmask (fm) نامعتبر: %w", err)
+		}
+		if old, ok := stream["finalmask"].(map[string]interface{}); ok {
+			for k, v := range old {
+				if _, exists := mask[k]; !exists {
+					mask[k] = v
+				}
+			}
+		}
+		stream["finalmask"] = mask
+	}
+
+	return stream, nil
+}
+
+// ---- hysteria2 ----
+
+// parseHysteria2 لینک hy2:// یا hysteria2:// را به اوت‌باند hysteria (نسخهٔ ۲) Xray تبدیل می‌کند.
+func parseHysteria2(raw string) (map[string]interface{}, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	q := u.Query()
+	auth := u.User.Username()
+	if pw, ok := u.User.Password(); ok {
+		auth += ":" + pw
+	}
+	port := atoi(u.Port())
+	if port == 0 {
+		port = 443
+	}
+
+	tls := map[string]interface{}{"alpn": []string{"h3"}}
+	if sni := firstNonEmpty(q.Get("sni"), q.Get("peer")); sni != "" {
+		tls["serverName"] = sni
+	}
+	if a := q.Get("alpn"); a != "" {
+		tls["alpn"] = strings.Split(a, ",")
+	}
+	if pcs := firstNonEmpty(q.Get("pcs"), q.Get("pinSHA256")); pcs != "" {
+		tls["pinnedPeerCertSha256"] = strings.ReplaceAll(pcs, ":", "")
+	}
+	if ech := q.Get("ech"); ech != "" {
+		tls["echConfigList"] = ech
+	}
+
+	stream := map[string]interface{}{
+		"network":          "hysteria",
+		"security":         "tls",
+		"tlsSettings":      tls,
+		"hysteriaSettings": map[string]interface{}{"version": 2, "auth": auth},
+	}
+	fm := map[string]interface{}{}
+	if obfs := q.Get("obfs"); obfs == "salamander" {
+		fm["udp"] = []interface{}{map[string]interface{}{
+			"type": "salamander", "settings": map[string]interface{}{"password": q.Get("obfs-password")},
+		}}
+	}
+	if hop := firstNonEmpty(q.Get("mport"), q.Get("ports")); hop != "" {
+		fm["quicParams"] = map[string]interface{}{"udpHop": map[string]interface{}{"ports": hop}}
+	}
+	if len(fm) > 0 {
+		stream["finalmask"] = fm
+	}
+
+	return map[string]interface{}{
+		"tag":      "proxy",
+		"protocol": "hysteria",
+		"settings": map[string]interface{}{
+			"version": 2,
+			"address": u.Hostname(),
+			"port":    port,
+		},
+		"streamSettings": stream,
+	}, nil
+}
+
+// ---- wireguard ----
+
+// parseWireguard لینک wireguard:// (فرمت v2rayN) را تبدیل می‌کند:
+// wireguard://<privateKey>@host:port?publickey=…&address=10.0.0.2/32&reserved=1,2,3&mtu=1280
+func parseWireguard(raw string) (map[string]interface{}, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	q := u.Query()
+	secret, _ := url.PathUnescape(u.User.Username())
+	peer := map[string]interface{}{
+		"publicKey": firstNonEmpty(q.Get("publickey"), q.Get("publicKey")),
+		"endpoint":  u.Host,
+	}
+	if psk := firstNonEmpty(q.Get("presharedkey"), q.Get("preSharedKey")); psk != "" {
+		peer["preSharedKey"] = psk
+	}
+	addrs := strings.Split(orDefault(firstNonEmpty(q.Get("address"), q.Get("ip")), "172.16.0.2/32"), ",")
+	for i := range addrs {
+		addrs[i] = strings.TrimSpace(addrs[i])
+	}
+	settings := map[string]interface{}{
+		"secretKey": secret,
+		"address":   addrs,
+		"peers":     []map[string]interface{}{peer},
+		"mtu":       orInt(atoi(q.Get("mtu")), 1280),
+	}
+	if r := q.Get("reserved"); r != "" {
+		var res []int
+		for _, part := range strings.Split(r, ",") {
+			res = append(res, atoi(part))
+		}
+		settings["reserved"] = res
+	}
+	return map[string]interface{}{"tag": "proxy", "protocol": "wireguard", "settings": settings}, nil
+}
+
+// ---- socks ----
+
+// parseSocks لینک socks:// (با user:pass ساده یا base64) را تبدیل می‌کند.
+func parseSocks(raw string) (map[string]interface{}, error) {
+	body := strings.TrimPrefix(raw, "socks://")
+	if i := strings.Index(body, "#"); i >= 0 {
+		body = body[:i]
+	}
+	var user, pass, hostport string
+	if at := strings.LastIndex(body, "@"); at >= 0 {
+		cred := body[:at]
+		if dec, err := b64decode(cred); err == nil && strings.Contains(dec, ":") {
+			cred = dec
+		} else if un, err := url.QueryUnescape(cred); err == nil {
+			cred = un
+		}
+		cp := strings.SplitN(cred, ":", 2)
+		user = cp[0]
+		if len(cp) == 2 {
+			pass = cp[1]
+		}
+		hostport = body[at+1:]
+	} else if dec, err := b64decode(body); err == nil && strings.Contains(dec, "@") {
+		return parseSocks("socks://" + dec)
+	} else {
+		hostport = body
+	}
+	host, port := splitHostPort(hostport)
+	server := map[string]interface{}{"address": strings.Trim(host, "[]"), "port": port}
+	if user != "" {
+		server["users"] = []map[string]interface{}{{"user": user, "pass": pass}}
+	}
+	return map[string]interface{}{
+		"tag":      "proxy",
+		"protocol": "socks",
+		"settings": map[string]interface{}{"servers": []map[string]interface{}{server}},
+	}, nil
+}
+
+func orInt(n, def int) int {
+	if n == 0 {
+		return def
+	}
+	return n
 }
 
 func orDefault(s, def string) string {

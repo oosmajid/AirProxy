@@ -41,6 +41,7 @@ type store struct {
 	HTTP    int         `json:"http"`
 	Rotate  bool        `json:"rotate"`
 	Bypass  bypassRules `json:"bypass"`
+	Adv     advanced    `json:"advanced"`
 }
 
 // prettyGroup نام نمایشی یک گروه (منبع) را می‌سازد.
@@ -76,7 +77,7 @@ func loadStore(p fyne.Preferences) store {
 // فیلد bypass به‌صورت خودکار «ایران روشن» می‌شود، ولی اگر کاربر عمداً خاموشش کرده
 // باشد همان مقدار ذخیره‌شده اعمال می‌گردد.
 func decodeStore(raw string) store {
-	s := store{Listen: "127.0.0.1", Socks: 10808, HTTP: 10809, Rotate: true, Bypass: defaultBypass()}
+	s := store{Listen: "127.0.0.1", Socks: 10808, HTTP: 10809, Rotate: true, Bypass: defaultBypass(), Adv: defaultAdvanced()}
 	if raw == "" {
 		return s
 	}

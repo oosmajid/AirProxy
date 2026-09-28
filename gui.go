@@ -95,6 +95,7 @@ func runGUI() {
 		sources      = st.Sources
 		configs      = st.Configs
 		bypass       = st.Bypass
+		adv          = st.Adv
 		selectedRaw  string
 		connectedRaw string
 		monGen       int64
@@ -128,7 +129,9 @@ func runGUI() {
 	subStatus.Alignment = fyne.TextAlignCenter
 
 	var powerBtn *powerButton
-	setStatus := func(main, sub string, c interface{ RGBA() (uint32, uint32, uint32, uint32) }, pstate int) {
+	setStatus := func(main, sub string, c interface {
+		RGBA() (uint32, uint32, uint32, uint32)
+	}, pstate int) {
 		fyne.Do(func() {
 			statusText.Text = main
 			statusText.Color = c
@@ -177,9 +180,17 @@ func runGUI() {
 			Configs: append([]cfgItem{}, configs...),
 			Listen:  l, Socks: s, HTTP: h, Rotate: rotateCheck.Checked,
 			Bypass: bypass,
+			Adv:    adv,
 		}
 		mu.Unlock()
 		saveStore(prefs, stt)
+	}
+
+	// currentAdv نسخهٔ فعلی تنظیمات پیشرفته را به‌صورت thread-safe برمی‌گرداند.
+	currentAdv := func() advanced {
+		mu.Lock()
+		defer mu.Unlock()
+		return adv
 	}
 
 	// ---------- groups list ----------
@@ -230,6 +241,7 @@ func runGUI() {
 			setLatData(raw, "...")
 			applyLatUI(raw, "...") // اسپینر روشن
 		}
+		pingAdv := currentAdv()
 		go func() {
 			// هر پینگ یک نمونهٔ موقتِ Xray بالا می‌آورد، پس همزمانی را پایین‌تر نگه می‌داریم.
 			sem := make(chan struct{}, 6)
@@ -240,7 +252,7 @@ func runGUI() {
 				go func(rw string) {
 					defer wg.Done()
 					defer func() { <-sem }()
-					d, err := realPing(rw, 8*time.Second)
+					d, err := realPing(rw, 8*time.Second, pingAdv)
 					res := "timeout"
 					if err == nil {
 						res = fmt.Sprintf("%d ms", d.Milliseconds())
@@ -548,7 +560,7 @@ func runGUI() {
 					if nr == curRaw {
 						continue
 					}
-					if err := eng.Start(nr, listen, socks, httpP, buildRouting(currentBypass())); err != nil {
+					if err := eng.Start(nr, listen, socks, httpP, buildRouting(currentBypass()), currentAdv()); err != nil {
 						continue
 					}
 					if _, err := proxyHealth(listen, socks, 6*time.Second); err != nil {
@@ -586,7 +598,7 @@ func runGUI() {
 		persist()
 		setStatus("Connecting…", nameOf(raw), colAccent, 1)
 		go func() {
-			if err := eng.Start(raw, listen, socks, httpP, buildRouting(currentBypass())); err != nil {
+			if err := eng.Start(raw, listen, socks, httpP, buildRouting(currentBypass()), currentAdv()); err != nil {
 				setStatus("Error", err.Error(), colRed, 0)
 				return
 			}
@@ -699,9 +711,110 @@ func runGUI() {
 		d.Show()
 	}
 
+	// showAdvancedDialog تنظیمات هستهٔ سبک v2rayN (Fragment / ECH / Mux / TLS / …) را نشان می‌دهد.
+	showAdvancedDialog := func() {
+		cur := currentAdv()
+		entry := func(val, ph string) *widget.Entry {
+			e := widget.NewEntry()
+			e.SetText(val)
+			e.SetPlaceHolder(ph)
+			return e
+		}
+
+		frag := widget.NewCheck("Enable Fragment (split TLS ClientHello)", nil)
+		frag.SetChecked(cur.Fragment)
+		fragPackets := entry(cur.FragPackets, "tlshello  or  1-3")
+		fragLength := entry(cur.FragLength, "100-200")
+		fragInterval := entry(cur.FragInterval, "10-20")
+
+		mux := widget.NewCheck("Enable Mux (mux.cool)", nil)
+		mux.SetChecked(cur.Mux)
+		muxConc := entry(strconv.Itoa(orInt(cur.MuxConcurrency, 8)), "8")
+
+		fpNone := "(none)"
+		fp := widget.NewSelect([]string{"chrome", "firefox", "safari", "ios", "android", "edge", "360", "qq", "random", "randomized", fpNone}, nil)
+		fp.SetSelected(orDefault(cur.Fingerprint, fpNone))
+		ech := entry(cur.ECH, "cloudflare-ech.com+https://1.1.1.1/dns-query")
+		echDef := "(default)"
+		echForce := widget.NewSelect([]string{echDef, "none", "half", "full"}, nil)
+		echForce.SetSelected(orDefault(cur.ECHForce, echDef))
+
+		tfo := widget.NewCheck("TCP Fast Open", nil)
+		tfo.SetChecked(cur.TFO)
+		ds := widget.NewSelect([]string{"AsIs", "IPIfNonMatch", "IPOnDemand"}, nil)
+		ds.SetSelected(orDefault(cur.DomainStrategy, "AsIs"))
+		bind := widget.NewCheck("Bypass system VPN (bind to physical interface)", nil)
+		bind.SetChecked(cur.BindPhysical)
+		vpnNote := widget.NewLabel("")
+		if name, on := physicalInterface(); on {
+			vpnNote.SetText(fmt.Sprintf("⚠︎ A system VPN is active — traffic will go via %s.", name))
+		} else {
+			vpnNote.SetText("No system VPN detected.")
+		}
+		vpnNote.Wrapping = fyne.TextWrapWord
+
+		form := container.NewVBox(
+			widget.NewLabelWithStyle("Fragment", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			frag,
+			labeled("Packets", fragPackets),
+			labeled("Length", fragLength),
+			labeled("Interval (ms)", fragInterval),
+			widget.NewSeparator(),
+			widget.NewLabelWithStyle("TLS / ECH", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			labeled("Default uTLS fingerprint", fp),
+			labeled("ECH config list / DNS (for all TLS configs)", ech),
+			labeled("ECH force query", echForce),
+			widget.NewSeparator(),
+			widget.NewLabelWithStyle("Mux & network", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			mux,
+			labeled("Mux concurrency", muxConc),
+			tfo,
+			labeled("Routing domain strategy", ds),
+			bind,
+			vpnNote,
+		)
+		d := dialog.NewCustomConfirm("Advanced (v2rayN-style)", "Save", "Cancel",
+			container.New(&fixedHeight{480}, container.NewVScroll(form)), func(ok bool) {
+				if !ok {
+					return
+				}
+				n := defaultAdvanced()
+				n.Fragment = frag.Checked
+				n.FragPackets = orDefault(strings.TrimSpace(fragPackets.Text), n.FragPackets)
+				n.FragLength = orDefault(strings.TrimSpace(fragLength.Text), n.FragLength)
+				n.FragInterval = orDefault(strings.TrimSpace(fragInterval.Text), n.FragInterval)
+				n.Mux = mux.Checked
+				n.MuxConcurrency = orInt(atoi(muxConc.Text), 8)
+				n.Fingerprint = fp.Selected
+				if n.Fingerprint == fpNone {
+					n.Fingerprint = ""
+				}
+				n.ECH = strings.TrimSpace(ech.Text)
+				n.ECHForce = echForce.Selected
+				if n.ECHForce == echDef {
+					n.ECHForce = ""
+				}
+				n.TFO = tfo.Checked
+				n.DomainStrategy = ds.Selected
+				n.BindPhysical = bind.Checked
+				mu.Lock()
+				adv = n
+				conn := connectedRaw
+				mu.Unlock()
+				persist()
+				if eng.Running() && conn != "" {
+					doConnect(conn)
+				}
+			}, w)
+		d.Resize(fyne.NewSize(420, 600))
+		d.Show()
+	}
+
 	gearBtn := widget.NewButtonWithIcon("", theme.SettingsIcon(), func() {
 		bypassBtn := widget.NewButtonWithIcon("Bypass / split-tunneling…", theme.MailForwardIcon(), showBypassDialog)
 		bypassBtn.Importance = widget.LowImportance
+		advBtn := widget.NewButtonWithIcon("Advanced: Fragment / ECH / Mux…", theme.SettingsIcon(), showAdvancedDialog)
+		advBtn.Importance = widget.LowImportance
 		form := container.NewVBox(
 			labeled("IP", listenEntry),
 			labeled("SOCKS5 port", socksEntry),
@@ -710,10 +823,11 @@ func runGUI() {
 			rotateCheck,
 			layoutSpacer(8),
 			bypassBtn,
+			advBtn,
 			layoutSpacer(4),
 		)
 		d := dialog.NewCustomConfirm("Settings", "Save", "Close", form, func(bool) { persist() }, w)
-		d.Resize(fyne.NewSize(380, 380))
+		d.Resize(fyne.NewSize(380, 420))
 		d.Show()
 	})
 	gearBtn.Importance = widget.LowImportance
@@ -734,7 +848,7 @@ func runGUI() {
 
 	showAddSource := func() {
 		entry := widget.NewMultiLineEntry()
-		entry.SetPlaceHolder("Subscription URL (https://…) or a config link\n(vmess / vless / trojan / ss / ssh)")
+		entry.SetPlaceHolder("Subscription URL (https://…) or a config link\n(vmess / vless / trojan / ss / hy2 / wireguard / socks / ssh)")
 		entry.Wrapping = fyne.TextWrapBreak
 		d := dialog.NewCustomConfirm("Add source", "Add", "Cancel",
 			container.New(&fixedHeight{120}, entry), func(ok bool) {

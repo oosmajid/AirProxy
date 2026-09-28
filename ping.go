@@ -28,15 +28,8 @@ func endpointOf(link string) (string, int, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	settings, ok := out["settings"].(map[string]interface{})
-	if !ok {
-		return "", 0, fmt.Errorf("no settings")
-	}
-	if vnext, ok := settings["vnext"].([]map[string]interface{}); ok && len(vnext) > 0 {
-		return asString(vnext[0]["address"]), asInt(vnext[0]["port"]), nil
-	}
-	if servers, ok := settings["servers"].([]map[string]interface{}); ok && len(servers) > 0 {
-		return asString(servers[0]["address"]), asInt(servers[0]["port"]), nil
+	if h, p := outboundEndpoint(out); h != "" {
+		return h, p, nil
 	}
 	return "", 0, fmt.Errorf("no endpoint")
 }
@@ -92,13 +85,13 @@ func pickFreePort() (int, error) {
 // یک درخواست HTTP واقعی می‌زند تا پینگِ end-to-end واقعی را اندازه بگیرد.
 // برخلاف tcpPing (که فقط reachability پورت — اغلب edge یک CDN — را می‌سنجد)،
 // این تابع کانفیگ‌های مرده/نامعتبر را درست تشخیص می‌دهد و پینگِ راستین می‌دهد.
-func realPing(link string, timeout time.Duration) (time.Duration, error) {
+func realPing(link string, timeout time.Duration, adv advanced) (time.Duration, error) {
 	link = strings.TrimSpace(link)
 
 	var outbound map[string]interface{}
 	var tun *sshTunnel
 	if strings.HasPrefix(link, "ssh://") {
-		t, sshPort, err := startSSHTunnel(link)
+		t, sshPort, err := startSSHTunnel(link, adv.BindPhysical)
 		if err != nil {
 			return 0, fmt.Errorf("ssh tunnel: %w", err)
 		}
@@ -123,6 +116,8 @@ func realPing(link string, timeout time.Duration) (time.Duration, error) {
 	}
 
 	cfg := buildConfig("127.0.0.1", port, 0, outbound, nil)
+	cfg["log"] = map[string]interface{}{"loglevel": "none"}
+	applyAdvanced(cfg, adv)
 	jsonBytes, _ := json.MarshalIndent(cfg, "", "  ")
 	coreCfg, err := serial.LoadJSONConfig(bytes.NewReader(jsonBytes))
 	if err != nil {
@@ -160,7 +155,9 @@ func proxyHealth(listen string, socks int, timeout time.Duration) (time.Duration
 		return 0, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
+	// فقط 204 ِ واقعی قبول است؛ صفحهٔ fallback ِ سرور (مثلاً 200 از nginx وقتی
+	// پسورد trojan اشتباه است) یا صفحهٔ فیلترینگ نباید پینگ سبز بگیرد.
+	if resp.StatusCode != http.StatusNoContent {
 		return 0, fmt.Errorf("status %d", resp.StatusCode)
 	}
 	return time.Since(start), nil

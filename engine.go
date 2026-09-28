@@ -27,7 +27,7 @@ type Engine struct {
 
 // Start با یک لینک، پروکسی را روی listen/socks/http بالا می‌آورد.
 // اگر از قبل چیزی در حال اجرا باشد، ابتدا متوقف می‌شود.
-func (e *Engine) Start(link, listen string, socksPort, httpPort int, routing map[string]interface{}) error {
+func (e *Engine) Start(link, listen string, socksPort, httpPort int, routing map[string]interface{}, adv advanced) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -39,7 +39,7 @@ func (e *Engine) Start(link, listen string, socksPort, httpPort int, routing map
 
 	var outbound map[string]interface{}
 	if strings.HasPrefix(strings.TrimSpace(link), "ssh://") {
-		tun, port, err := startSSHTunnel(link)
+		tun, port, err := startSSHTunnel(link, adv.BindPhysical)
 		if err != nil {
 			return fmt.Errorf("ssh tunnel: %w", err)
 		}
@@ -54,6 +54,7 @@ func (e *Engine) Start(link, listen string, socksPort, httpPort int, routing map
 	}
 
 	cfg := buildConfig(listen, socksPort, httpPort, outbound, routing)
+	applyAdvanced(cfg, adv)
 	jsonBytes, _ := json.MarshalIndent(cfg, "", "  ")
 
 	coreCfg, err := serial.LoadJSONConfig(bytes.NewReader(jsonBytes))

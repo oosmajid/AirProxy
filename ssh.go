@@ -140,7 +140,7 @@ func sshOutbound(port int) map[string]interface{} {
 
 // startSSHTunnel به سرور SSH وصل می‌شود و یک SOCKS5 محلی روی پورت آزاد بالا می‌آورد.
 // پورت محلیِ انتخاب‌شده را برمی‌گرداند.
-func startSSHTunnel(raw string) (*sshTunnel, int, error) {
+func startSSHTunnel(raw string, bindPhysical bool) (*sshTunnel, int, error) {
 	cfg, err := parseSSHLink(raw)
 	if err != nil {
 		return nil, 0, err
@@ -150,10 +150,24 @@ func startSSHTunnel(raw string) (*sshTunnel, int, error) {
 		return nil, 0, err
 	}
 	addr := net.JoinHostPort(cfg.host, strconv.Itoa(cfg.port))
-	client, err := ssh.Dial("tcp", addr, clientCfg)
+	// اگر VPN ِ سیستمی روشن باشد، اتصال SSH را به کارت فیزیکی می‌بندیم (مثل بقیهٔ کانفیگ‌ها).
+	iface := ""
+	if bindPhysical {
+		if name, vpn := physicalInterface(); vpn {
+			iface = name
+		}
+	}
+	d := boundDialer(iface, clientCfg.Timeout)
+	conn, err := d.Dial("tcp", addr)
 	if err != nil {
 		return nil, 0, fmt.Errorf("اتصال SSH: %w", err)
 	}
+	sc, chans, reqs, err := ssh.NewClientConn(conn, addr, clientCfg)
+	if err != nil {
+		conn.Close()
+		return nil, 0, fmt.Errorf("اتصال SSH: %w", err)
+	}
+	client := ssh.NewClient(sc, chans, reqs)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		client.Close()

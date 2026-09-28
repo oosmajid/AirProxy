@@ -15,7 +15,7 @@ import (
 
 func main() {
 	var (
-		link   = flag.String("link", "", "یک کانفیگ تکی: vmess:// | vless:// | trojan:// | ss://")
+		link   = flag.String("link", "", "یک کانفیگ تکی: vmess:// | vless:// | trojan:// | ss:// | hy2:// | wireguard:// | socks://")
 		sub    = flag.String("sub", "", "آدرس ساب‌اسکریپشن (URL)")
 		index  = flag.Int("index", 0, "وقتی از --sub استفاده می‌کنید، شماره کانفیگ موردنظر (از 0)")
 		listen = flag.String("listen", "127.0.0.1", "آی‌پی محل اجرای پروکسی")
@@ -60,7 +60,7 @@ func runCLI(link, sub string, index int, listen string, socks, httpP int, list b
 	chosen := rawLinks[index]
 
 	eng := &Engine{}
-	if err := eng.Start(chosen, listen, socks, httpP, nil); err != nil {
+	if err := eng.Start(chosen, listen, socks, httpP, nil, defaultAdvanced()); err != nil {
 		fatal("%v", err)
 	}
 	defer eng.Stop()
