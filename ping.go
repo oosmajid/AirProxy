@@ -135,6 +135,11 @@ func realPing(link string, timeout time.Duration, adv advanced) (time.Duration, 
 	return proxyHealth("127.0.0.1", port, timeout)
 }
 
+// pingURL مقصد تست سلامت است. عمداً HTTPS است (مثل پیش‌فرض v2rayN): در کانفیگ‌های
+// بدون TLS (noTLS)، فیلترینگ ترافیکِ داخل تونل را می‌بیند؛ یک درخواست HTTP ساده رد
+// می‌شود ولی HTTPS (یعنی همهٔ وب‌گردی واقعی) قطع می‌شود. پس پینگ HTTP دروغ می‌گفت.
+var pingURL = "https://www.google.com/generate_204"
+
 // proxyHealth از طریق پروکسی لوکال یک درخواست واقعی می‌زند تا سلامت اتصال را بسنجد.
 func proxyHealth(listen string, socks int, timeout time.Duration) (time.Duration, error) {
 	socksAddr := net.JoinHostPort(listen, fmt.Sprintf("%d", socks))
@@ -150,7 +155,7 @@ func proxyHealth(listen string, socks int, timeout time.Duration) (time.Duration
 	client := &http.Client{Transport: transport, Timeout: timeout}
 
 	start := time.Now()
-	resp, err := client.Get("http://cp.cloudflare.com/generate_204")
+	resp, err := client.Get(pingURL)
 	if err != nil {
 		return 0, err
 	}

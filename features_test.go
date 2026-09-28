@@ -175,6 +175,9 @@ func TestProxyHealthRequires204(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer inst.Close()
+	old := pingURL
+	pingURL = "http://example.test/generate_204" // HTTP تا redirect به وب‌سرور لوکال برسد
+	defer func() { pingURL = old }()
 	if _, err := proxyHealth("127.0.0.1", socks, 3*time.Second); err == nil {
 		t.Fatal("200 fallback page must not count as a healthy proxy")
 	}

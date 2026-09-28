@@ -77,7 +77,7 @@ Settings apply to both **connect** and **ping**, so a ping measures exactly the 
 
 ### 📶 Why pings are accurate
 
-Each ping starts a throwaway Xray instance and requests `generate_204` **through the proxy**; only a genuine `204` counts (a fallback page or a filtering page does not). If another VPN is active on the Mac (default route on a `utun` interface), AirProxy binds its traffic to the physical interface (e.g. `en0`) — otherwise every config would look alive because it is silently reached **through the other VPN**.
+Each ping starts a throwaway Xray instance and requests `https://www.google.com/generate_204` **through the proxy** (HTTPS on purpose: on no-TLS configs, filtering can pass plain HTTP but kill every HTTPS site); only a genuine `204` counts (a fallback page or a filtering page does not). If another VPN is active on the Mac (default route on a `utun` interface), AirProxy binds its traffic to the physical interface (e.g. `en0`) — otherwise every config would look alive because it is silently reached **through the other VPN**.
 
 ### 🔀 Bypass (split-tunneling)
 
